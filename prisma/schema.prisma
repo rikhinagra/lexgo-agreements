@@ -1,0 +1,267 @@
+// LexGo Agreements database schema (Phase 1).
+// Money is always stored as integer cents. Dates that mean "a calendar day"
+// in the business timezone are stored as DATE (no time). Instants are TIMESTAMPTZ.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BillingMode {
+  ADVANCE
+  ARREARS
+}
+
+enum MouStatus {
+  DRAFT       // created by admin, link not sent yet
+  SENT        // link emailed to the client
+  VIEWED      // client opened the link
+  SIGNED      // client signed, first invoice issued, waiting for payment
+  ACTIVE      // first invoice paid, services running
+  EXPIRED     // link expired before signing
+  CANCELLED   // admin cancelled before signing
+  TERMINATED  // contract ended after signing
+}
+
+enum InvoiceKind {
+  INITIAL     // pro-rated start month, issued at signing
+  MONTHLY     // regular month
+  FINAL       // last partial month after termination
+  ADJUSTMENT  // manual correction
+}
+
+enum InvoiceStatus {
+  DRAFT       // waiting for admin approval (review before send)
+  SENT
+  PAID
+  OVERDUE
+  VOID
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+}
+
+model Admin {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  active       Boolean   @default(true)
+  notify       Boolean   @default(true)
+  // scrypt hash, never the password itself. Null means the admin cannot sign in yet.
+  passwordHash String?
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime? @db.Timestamptz
+  lastLoginAt  DateTime? @db.Timestamptz
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @db.Timestamptz
+  sessions     Session[]
+}
+
+// Server side login sessions. Only a hash of the cookie token is stored,
+// so a database leak cannot be used to take over a session.
+model Session {
+  id        String   @id @default(cuid())
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime @db.Timestamptz
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([adminId])
+  @@index([expiresAt])
+}
+
+// One row per setting key. Examples: business_timezone, provider_legal_name,
+// provider_signatory_name, provider_signatory_title, default_rate_cents,
+// default_payment_due_days, default_governing_law, default_payment_method.
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @db.Timestamptz
+}
+
+model Client {
+  id          String   @id @default(cuid())
+  companyName String
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @updatedAt @db.Timestamptz
+  mous        Mou[]
+}
+
+model Mou {
+  id         String    @id @default(cuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id])
+  status     MouStatus @default(DRAFT)
+  isTest     Boolean   @default(true)
+
+  // Terms set by the admin
+  agents         Int
+  rateCents      Int
+  billingMode    BillingMode @default(ADVANCE)
+  paymentDueDays Int         @default(7)
+  governingLaw   String?
+  paymentMethod  String?
+  customScope    String?
+  clientEmail    String
+
+  // Link security. Only a hash of the token is stored.
+  tokenHash      String   @unique
+  tokenExpiresAt DateTime @db.Timestamptz
+  tokenRevokedAt DateTime? @db.Timestamptz
+
+  sentAt   DateTime? @db.Timestamptz
+  viewedAt DateTime? @db.Timestamptz
+
+  // Signing details
+  signedAt          DateTime? @db.Timestamptz
+  startDate         DateTime? @db.Date
+  signerName        String?
+  signerTitle       String?
+  signerEmail1      String?
+  signerPhone1      String?
+  signerEmail2      String?
+  signerPhone2      String?
+  signerIp          String?
+  signerUserAgent   String?
+  emailVerifiedAt   DateTime? @db.Timestamptz
+  termsVersion      String?
+  documentHash      String?
+  providerLegalName     String?
+  providerSignatoryName String?
+  providerSignatoryTitle String?
+
+  // End of contract
+  terminationNoticeAt DateTime? @db.Timestamptz
+  endDate             DateTime? @db.Date
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  questions Question[]
+  invoices  Invoice[]
+  changes   AgentChange[]
+
+  @@index([status])
+  @@index([clientId])
+}
+
+model Question {
+  id         String   @id @default(cuid())
+  mouId      String
+  mou        Mou      @relation(fields: [mouId], references: [id])
+  body       String
+  replyEmail String
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  @@index([mouId])
+}
+
+// Mid-contract change to the number of agents, with an effective calendar day.
+model AgentChange {
+  id            String   @id @default(cuid())
+  mouId         String
+  mou           Mou      @relation(fields: [mouId], references: [id])
+  effectiveDate DateTime @db.Date
+  agentsAfter   Int
+  note          String?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+
+  @@index([mouId, effectiveDate])
+}
+
+model Invoice {
+  id     String        @id @default(cuid())
+  number String        @unique
+  mouId  String
+  mou    Mou           @relation(fields: [mouId], references: [id])
+  kind   InvoiceKind
+  status InvoiceStatus @default(DRAFT)
+  isTest Boolean       @default(true)
+
+  // Service month covered by this invoice
+  serviceYear  Int
+  serviceMonth Int
+  periodStart  DateTime @db.Date
+  periodEnd    DateTime @db.Date
+  daysBilled   Int
+  daysInMonth  Int
+
+  agents      Int
+  rateCents   Int
+  amountCents Int
+
+  issueDate DateTime  @db.Date
+  dueDate   DateTime  @db.Date
+  sentAt    DateTime? @db.Timestamptz
+  paidAt    DateTime? @db.Timestamptz
+  voidedAt  DateTime? @db.Timestamptz
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  // Idempotency guard: one invoice of each kind per contract per service month.
+  // The monthly job can run twice and will never create a duplicate.
+  @@unique([mouId, serviceYear, serviceMonth, kind])
+  @@index([status])
+}
+
+// Gapless counter per service month, used to build INV-YYYY-MM-NNN.
+model InvoiceSequence {
+  yearMonth String @id // for example "2026-11"
+  lastValue Int    @default(0)
+}
+
+model EmailLog {
+  id          String      @id @default(cuid())
+  toAddresses String
+  subject     String
+  template    String
+  status      EmailStatus @default(QUEUED)
+  providerId  String?
+  error       String?
+  mouId       String?
+  invoiceId   String?
+  isTest      Boolean     @default(true)
+  createdAt   DateTime    @default(now()) @db.Timestamptz
+  sentAt      DateTime?   @db.Timestamptz
+
+  @@index([mouId])
+  @@index([invoiceId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String   // admin email, "client", or "system"
+  action     String
+  entityType String
+  entityId   String
+  detail     Json?
+  ip         String?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// Failed sign in attempts per network address. Stops one address from trying
+// many passwords against many accounts, which the per account lock cannot catch.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  ip        String
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([ip, createdAt])
+  @@index([createdAt])
+}
