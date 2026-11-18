@@ -36,7 +36,7 @@ check("camera, microphone and location are off", /camera=\(\)/.test(h("permissio
 check("page says nothing about secrets", !/DATABASE_URL|postgresql:\/\/|scrypt\$/.test(html));
 
 // 2. Everything private redirects to the login page when signed out
-for (const path of ["/", "/admin", "/admin/mous", "/admin/mous/new", "/admin/mous/some-id"]) {
+for (const path of ["/", "/admin", "/admin/mous", "/admin/mous/new", "/admin/mous/some-id", "/admin/mous/some-id/edit"]) {
   const r = await get(path);
   const loc = r.headers.get("location") ?? "";
   check(`signed out ${path} goes to /login`, [307, 308].includes(r.status) && loc.endsWith("/login"), `${r.status} ${loc}`);
@@ -59,8 +59,17 @@ const weird = await get("/admin/mous/%00%27%22%3Cscript%3E");
 check("odd characters in a path do not crash the app", weird.status < 500, String(weird.status));
 
 // 5. The secret client link area never answers with real data for a made up token
-const fake = await get("/mou/not-a-real-token");
-check("made up client link gives no data", fake.status === 404 || fake.status === 307, String(fake.status));
+const fakeToken = "A".repeat(43);
+for (const path of ["/mou/not-a-real-token", `/mou/${fakeToken}`, "/mou/%00%27%22%3Cscript%3E"]) {
+  const r = await get(path);
+  const body = await r.text();
+  check(`made up client link ${path.slice(0, 24)} shows only the not valid page`,
+    r.status < 500 && /not valid/i.test(body) && !/Memorandum|Sunrise|ZZTEST|signerName/.test(body.replace(/hello@lexgosolutions\.com/g, "")), String(r.status));
+}
+const fakePage = await get(`/mou/${fakeToken}`);
+const fakeCsp = fakePage.headers.get("content-security-policy") ?? "";
+check("client page has the strict policy and is not cached", /nonce-/.test(fakeCsp) && /no-store/.test(fakePage.headers.get("cache-control") ?? ""));
+check("client page is hidden from search engines", /noindex/.test(await fakePage.text()));
 
 console.log(failed === 0 ? "\nAll security checks passed." : `\n${failed} security check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

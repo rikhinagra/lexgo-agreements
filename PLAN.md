@@ -24,9 +24,9 @@ The switch is one environment variable (`APP_MODE=test` or `live`) plus real key
 | 0 | Scaffold, spec, plan, pnpm | Done |
 | 1 | Database schema, billing logic, unit tests | Done (2026-11-13) |
 | 2 | Admin login, create MOU form, MOU list, security hardening | Done (2026-11-13) |
-| 3 | Client MOU page: secure link, questions, signing, email code check | Next |
-| 4 | Emails (Resend), invoice PDF, signed MOU PDF | Not started |
-| 5 | Invoicing: first invoice at signing, monthly job, payment status, reminders | Not started |
+| 3 | Client MOU page: secure link, questions, signing (one signer, others get a copy) | Done (2026-11-18) with editing and a cancel pop-up, email code check moves to Phase 4 |
+| 4 | Emails (Resend): Send to client emails the link, email code check before signing, all 3 admins emailed at signing and on questions, signed MOU PDF | Next |
+| 5 | Invoices as drafts only: draft at signing, draft on the 1st, admins review then click Send invoice, payment status | Not started |
 | 6 | Contract changes: add or remove agents, termination | Not started |
 | 7 | Test mode demo to the client, feedback, fixes | Not started |
 | 8 | Go live: production setup, DNS, real keys, switch to LIVE | Not started |
@@ -45,6 +45,21 @@ The switch is one environment variable (`APP_MODE=test` or `live`) plus real key
 - **Client link:** random 256 bit token, only its hash is stored, so the link is shown once. An admin can make a new link (the old one stops) or cancel an unsigned MOU.
 - **Tests:** 51 unit tests, 22 integration tests against Neon, and a 32 point security smoke check (`pnpm test:security`, needs the app running).
 - **Checked in a real browser:** login, empty list, form defaults, validation errors, creating a MOU, detail page, sign out, redirect when signed out. All worked. Temporary test data was removed afterwards.
+
+## Phase 3 result (what exists now)
+- **Client page** `/mou/[token]`: shows the MOU with the client's company, agents and rate filled in. Wording comes from the sample MOU. The first invoice amount shown is for signing today.
+- **Link rules:** 30 days. Only the hash is stored. A bad, expired or cancelled link shows a plain message and no data. The page is hidden from search engines and never cached.
+- **Status:** Draft, then Sent when an admin clicks Send to client, then Viewed on first open, then Signed.
+- **Questions:** saved with the reply email. Limits: 3 per hour per MOU, 20 per MOU, 10 per hour per network address, plus a hidden field that catches bots.
+- **Signing:** name, title, email and phone are required, second email and phone are optional, the typed name must match, and the agree box must be ticked. The signing time in Pacific becomes the start date. Saved with the signature: IP address, device, MOU version, and a fingerprint of the exact text. Two people signing at once cannot both succeed.
+- **Several emails:** one main email who signs plus up to 5 copy emails, with an Add another email button.
+- **Send to client:** makes a fresh link each time, because only a scrambled copy of a link is stored. Until Phase 4, the admin copies the link and shares it. Phase 4 emails it.
+- **Provider signatory:** Rikhi Singh, Authorized Signatory, company LexGo Solutions. All changeable in settings.
+- **Tests:** 63 unit, 36 integration, 36 security checks pass. Checked in a browser at phone, tablet and laptop sizes.
+- **Editing:** every MOU that is not signed has an Edit button. A Draft just saves. A Sent or Viewed MOU stops its old link when something changes, goes back to Draft, and must be sent again. Saving with no changes does nothing. Signed and cancelled MOUs are locked. Questions are kept. The history records what changed.
+- **Cancel pop-up:** a proper confirmation pop-up replaces the plain browser box.
+- **Not done yet (by plan):** email code check and all emails (Phase 4), invoices (Phase 5).
+- **Known limits:** a link preview robot (for example in a chat app) can mark a MOU as Viewed. The signed copy stays visible to anyone holding the link.
 
 ## UI redesign (done 2026-11-13, before Phase 3)
 - **Colors from lexgosolutions.com:** navy `#0A1F44`, gold `#D4AF37`, cream `#F8F6F1`, slate `#475569`, light gold `#E8D4A0`, dark navy `#050F24`.
@@ -84,7 +99,6 @@ The switch is one environment variable (`APP_MODE=test` or `live`) plus real key
 
 ## Security still to do
 - Two step sign in (authenticator app) for admins, in Phase 8.
-- Rate limit and spam protection on the client question box, in Phase 3.
 - Email code check before signing, in Phase 3.
 - Run `pnpm audit` before every release, and set up automatic dependency alerts on GitHub.
 - Backups and database access review before go live.
@@ -113,3 +127,6 @@ Accounts should belong to the company. Keys go in `.env.local` and are never com
 - 2026-11-13: UI redesign with LexGo brand colors, skeleton loaders. Development mode uses a looser style policy because Next dev tools add inline styles, production stays strict.
 - 2026-11-13: Phase 2 completed with security hardening. Added Session and LoginAttempt tables, CSP proxy, scripts `admin:set-password` and `test:security`. Turned off the scaffold's cacheComponents option because the admin area is fully dynamic.
 - 2026-11-13: Phase 1 completed. Prisma 7.10.1 pinned (a release candidate of the CLI was avoided). Added `DIRECT_URL` for migrations.
+- 2026-11-18: Client changes agreed. MOU can go to several client emails (one signer, the rest get a copy). Admin reviews then clicks Send to client. All 3 admins are emailed at signing. Invoices are never sent automatically: the app prepares drafts, an admin reviews and clicks Send invoice.
+- 2026-11-18: Phase 3 completed (client page, questions, signing, copy emails, Send to client). Start date shown one day early was fixed (calendar dates have no timezone shift).
+- 2026-11-18: Added editing of unsigned MOUs and a professional cancel pop-up.

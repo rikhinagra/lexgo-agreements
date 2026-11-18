@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Icon, Spinner } from "@/components/icons";
-import { LinkBox } from "@/components/LinkBox";
 import { SelectField } from "@/components/SelectField";
+import { updateMouAction } from "../[id]/edit/actions";
 import { createMouAction, type CreateMouState } from "./actions";
 
 export interface FormDefaults {
@@ -15,12 +15,21 @@ export interface FormDefaults {
   paymentMethod: string;
 }
 
-type FieldName = keyof FormDefaults | "companyName" | "agents" | "clientEmail" | "customScope" | "linkExpiryDays";
+type FieldName = keyof FormDefaults | "companyName" | "agents" | "clientEmail" | "customScope";
+
+/** Set when an existing, unsigned MOU is being edited instead of a new one being created. */
+export interface EditSetup {
+  mouId: string;
+  values: Record<string, string>;
+  cc: string[];
+  /** True when the client link has already been made, so saving a change stops the old link. */
+  wasSent: boolean;
+}
 
 // Changing the key throws away the old form state, which gives a clean form.
-export function CreateMouForm({ defaults }: { defaults: FormDefaults }) {
+export function CreateMouForm({ defaults, edit }: { defaults: FormDefaults; edit?: EditSetup }) {
   const [round, setRound] = useState(0);
-  return <CreateMouFormInner key={round} defaults={defaults} onCreateAnother={() => setRound((n) => n + 1)} />;
+  return <CreateMouFormInner key={round} defaults={defaults} edit={edit} onCreateAnother={() => setRound((n) => n + 1)} />;
 }
 
 function Section({ title, text, children }: { title: string; text: string; children: React.ReactNode }) {
@@ -35,8 +44,18 @@ function Section({ title, text, children }: { title: string; text: string; child
   );
 }
 
-function CreateMouFormInner({ defaults, onCreateAnother }: { defaults: FormDefaults; onCreateAnother: () => void }) {
-  const [state, formAction, pending] = useActionState<CreateMouState, FormData>(createMouAction, {});
+function CreateMouFormInner({ defaults, edit, onCreateAnother }: { defaults: FormDefaults; edit?: EditSetup; onCreateAnother: () => void }) {
+  const [state, formAction, pending] = useActionState<CreateMouState, FormData>(
+    edit ? updateMouAction.bind(null, edit.mouId) : createMouAction,
+    {},
+  );
+  const [copies, setCopies] = useState<string[]>(edit?.cc ?? []);
+  const [shownErrorFor, setShownErrorFor] = useState<CreateMouState | null>(null);
+  // After a failed save the server sends the copy emails back, so nothing typed is lost.
+  if (state.ccEmails && shownErrorFor !== state) {
+    setShownErrorFor(state);
+    setCopies(state.ccEmails);
+  }
 
   if (state.created) {
     return (
@@ -45,28 +64,34 @@ function CreateMouFormInner({ defaults, onCreateAnother }: { defaults: FormDefau
           <Icon name="checkCircle" className="h-8 w-8" />
         </span>
         <div>
-          <h2 className="font-display text-2xl font-bold">MOU created for {state.created.company}</h2>
+          <h2 className="font-display text-2xl font-bold">MOU saved for {state.created.company}</h2>
           <p className="mt-2 text-slate">
-            Copy the secure client link below. It is shown only once, because only a scrambled copy is stored.
-            It expires on <strong className="text-navy">{state.created.expiresAt}</strong>.
+            Nothing has been sent yet. Check the details, then send it to the client from the next screen.
           </p>
         </div>
-        <LinkBox link={state.created.link} />
         <div className="flex flex-wrap gap-3 pt-1">
-          <Link className="btn" href={`/admin/mous/${state.created.id}`}>View MOU <Icon name="arrowRight" className="h-4 w-4" /></Link>
+          <Link className="btn" href={`/admin/mous/${state.created.id}`}>Review and send <Icon name="arrowRight" className="h-4 w-4" /></Link>
           <button type="button" className="btn-outline" onClick={onCreateAnother}>Create another</button>
         </div>
       </div>
     );
   }
 
-  const v = state.values ?? {};
+  const v = state.values ?? edit?.values ?? {};
   const err = state.fieldErrors ?? {};
   const val = (name: FieldName, fallback = "") => v[name] ?? fallback;
   const fieldError = (name: string) => (err[name]?.[0] ? <p className="field-error">{err[name]![0]}</p> : null);
 
   return (
     <form action={formAction} className="card space-y-9 p-7 sm:p-8">
+      {edit?.wasSent ? (
+        <div className="flex items-start gap-3 rounded-xl border border-gold/50 bg-gold/10 p-4 text-sm text-navy">
+          <Icon name="alert" className="mt-0.5 h-5 w-5 shrink-0 text-[#8a6d00]" />
+          <p>
+            This MOU was already sent. <strong>If you change anything, the old link stops working</strong> and you will need to send it to the client again.
+          </p>
+        </div>
+      ) : null}
       <Section title="Client" text="Who is this agreement with?">
         <div>
           <label className="label" htmlFor="companyName">Company name</label>
@@ -76,8 +101,43 @@ function CreateMouFormInner({ defaults, onCreateAnother }: { defaults: FormDefau
         <div>
           <label className="label" htmlFor="clientEmail">Client email</label>
           <input className="input" id="clientEmail" name="clientEmail" type="email" defaultValue={val("clientEmail")} placeholder="name@company.com" required />
-          <p className="hint">The secure MOU link is sent to this address.</p>
+          <p className="hint">The main contact. This person receives the MOU and signs it.</p>
           {fieldError("clientEmail")}
+        </div>
+        <div>
+          <span className="label">Send a copy to others <span className="font-normal text-slate">(optional)</span></span>
+          {copies.length > 0 ? (
+            <ul className="space-y-2">
+              {copies.map((email, index) => (
+                <li key={index} className="flex items-center gap-2">
+                  <input
+                    className="input"
+                    name="ccEmail"
+                    type="email"
+                    aria-label={`Copy email ${index + 1}`}
+                    value={email}
+                    placeholder="name@company.com"
+                    onChange={(e) => setCopies((list) => list.map((item, i) => (i === index ? e.target.value : item)))}
+                  />
+                  <button
+                    type="button"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-navy/15 text-slate transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                    aria-label={`Remove copy email ${index + 1}`}
+                    onClick={() => setCopies((list) => list.filter((_, i) => i !== index))}
+                  >
+                    <Icon name="x" className="h-4 w-4" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {copies.length < 5 ? (
+            <button type="button" className="btn-outline mt-3" onClick={() => setCopies((list) => [...list, ""])}>
+              <Icon name="plus" className="h-4 w-4" /> Add another email
+            </button>
+          ) : null}
+          <p className="hint">These people get a copy only. Only one person signs, whoever opens the link and signs.</p>
+          {fieldError("ccEmails")}
         </div>
       </Section>
 
@@ -130,19 +190,14 @@ function CreateMouFormInner({ defaults, onCreateAnother }: { defaults: FormDefau
             {fieldError("paymentMethod")}
           </div>
         </div>
-        <div className="max-w-[14rem]">
-          <label className="label" htmlFor="linkExpiryDays">Link valid for (days)</label>
-          <input className="input" id="linkExpiryDays" name="linkExpiryDays" type="number" min={1} max={90} defaultValue={val("linkExpiryDays", "14")} />
-          {fieldError("linkExpiryDays")}
-        </div>
       </Section>
 
       {state.error ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm text-red-800">{state.error}</p> : null}
       <div className="flex items-center gap-3 border-t border-navy/10 pt-6">
         <button className="btn-gold px-6 py-3" disabled={pending}>
-          {pending ? (<><Spinner /> Creating</>) : (<>Create MOU <Icon name="arrowRight" className="h-4 w-4" /></>)}
+          {pending ? (<><Spinner /> {edit ? "Saving" : "Creating"}</>) : edit ? (<>Save changes <Icon name="check" className="h-4 w-4" /></>) : (<>Create MOU <Icon name="arrowRight" className="h-4 w-4" /></>)}
         </button>
-        <Link href="/admin/mous" className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-slate hover:text-navy">Cancel</Link>
+        <Link href={edit ? `/admin/mous/${edit.mouId}` : "/admin/mous"} className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-slate hover:text-navy">Cancel</Link>
       </div>
     </form>
   );

@@ -16,9 +16,9 @@ const SETTINGS: Record<string, string> = {
   default_billing_mode: "ADVANCE",
   default_governing_law: "State of California",
   default_payment_method: "To be confirmed",
-  provider_legal_name: "LexGo Solutions (test name)",
-  provider_signatory_name: "Test Signatory",
-  provider_signatory_title: "Chief Executive Officer",
+  provider_legal_name: "LexGo Solutions",
+  provider_signatory_name: "Rikhi Singh",
+  provider_signatory_title: "Authorized Signatory",
   review_before_send: "true",
 };
 

@@ -9,9 +9,9 @@ export const metadata: Metadata = { title: "New MOU" };
 
 const STEPS = [
   "You enter the terms agreed on the call.",
-  "The client receives a secure link to review the MOU.",
-  "The client signs online, and the start date is locked in.",
-  "The first invoice is created and monthly invoices follow.",
+  "You check the MOU, then send it to the client.",
+  "The client reviews it, asks questions and signs online.",
+  "The signing day becomes the start date, and the team is told.",
 ];
 
 export default async function NewMouPage() {
@@ -24,7 +24,7 @@ export default async function NewMouPage() {
         <Icon name="arrowLeft" className="h-4 w-4" /> Back to MOUs
       </Link>
       <h1 className="mb-1 mt-3 font-display text-4xl font-bold">New MOU</h1>
-      <p className="mb-8 text-slate">Create a prefilled agreement and get a secure link for your client.</p>
+      <p className="mb-8 text-slate">Create a prefilled agreement, check it, then send it to your client.</p>
       <div className="grid items-start gap-8 lg:grid-cols-[1fr_300px]">
         <CreateMouForm
           defaults={{

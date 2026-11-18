@@ -115,6 +115,8 @@ model Mou {
   paymentMethod  String?
   customScope    String?
   clientEmail    String
+  // Extra people who get a copy. Only the person who opens the link signs.
+  ccEmails       String[] @default([])
 
   // Link security. Only a hash of the token is stored.
   tokenHash      String   @unique
@@ -128,6 +130,7 @@ model Mou {
   signedAt          DateTime? @db.Timestamptz
   startDate         DateTime? @db.Date
   signerName        String?
+  signatureTyped    String?
   signerTitle       String?
   signerEmail1      String?
   signerPhone1      String?
@@ -163,6 +166,7 @@ model Question {
   mou        Mou      @relation(fields: [mouId], references: [id])
   body       String
   replyEmail String
+  ip         String?
   createdAt  DateTime @default(now()) @db.Timestamptz
 
   @@index([mouId])

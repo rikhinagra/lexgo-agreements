@@ -1,6 +1,8 @@
-// Usage: pnpm admin:set-password you@example.com ["Display Name"]
+// Usage: pnpm admin:set-password you@example.com ["Display Name"] [--show]
+// With --show the password is typed in plain view, so you can see it, and it is asked only once.
 // Creates the admin if it does not exist (a name is then required), and sets the password.
 // The password is typed into a hidden prompt, so it never appears on screen or in history.
+import { createInterface } from "node:readline/promises";
 import { config } from "dotenv";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
@@ -35,9 +37,19 @@ function askHidden(question: string): Promise<string> {
   });
 }
 
+async function askVisible(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
+  const show = process.argv.includes("--show");
   const email = (process.argv[2] ?? "").trim().toLowerCase();
-  const name = process.argv[3]?.trim();
+  const name = process.argv[3]?.startsWith("--") ? undefined : process.argv[3]?.trim();
   if (!email.includes("@")) throw new Error('Usage: pnpm admin:set-password you@example.com ["Display Name"]');
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
@@ -45,11 +57,13 @@ async function main() {
     const existing = await prisma.admin.findUnique({ where: { email } });
     if (!existing && !name) throw new Error("This admin does not exist yet. Add a display name as the second argument.");
 
-    const password = await askHidden("New password (hidden): ");
+    const password = show ? await askVisible("New password (you can see it): ") : await askHidden("New password (hidden): ");
     const problem = checkPasswordStrength(password);
     if (problem) throw new Error(problem);
-    const again = await askHidden("Type it again: ");
-    if (again !== password) throw new Error("The two passwords do not match. Nothing was saved.");
+    if (!show) {
+      const again = await askHidden("Type it again: ");
+      if (again !== password) throw new Error("The two passwords do not match. Nothing was saved.");
+    }
 
     const passwordHash = await hashPassword(password);
     if (existing) {

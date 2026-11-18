@@ -5,8 +5,9 @@ import { Icon } from "@/components/icons";
 import { StatusBadge } from "@/components/StatusBadge";
 import { requireAdmin } from "@/lib/auth/session";
 import { formatCents } from "@/lib/billing";
-import { actionLabel, formatDate, formatDateTime, initials } from "@/lib/format";
+import { actionLabel, formatDate, formatDateTime, formatDay, initials } from "@/lib/format";
 import { displayStatus, getMouDetail, PRE_SIGNING_STATUSES } from "@/lib/services/mou";
+import { FlashMessage } from "./flash-message";
 import { LinkPanel } from "./link-panel";
 
 export const metadata: Metadata = { title: "MOU details" };
@@ -29,9 +30,23 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-export default async function MouDetailPage({ params }: { params: Promise<{ id: string }> }) {
+const EDIT_MESSAGES: Record<string, { text: string; tone: "ok" | "warn" }> = {
+  saved: { text: "Changes saved.", tone: "ok" },
+  stopped: { text: "Changes saved. The old client link no longer works, so please send the MOU to the client again.", tone: "warn" },
+  none: { text: "No changes were made.", tone: "ok" },
+};
+
+export default async function MouDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ edited?: string }>;
+}) {
   await requireAdmin();
   const { id } = await params;
+  const { edited } = await searchParams;
+  const banner = edited ? EDIT_MESSAGES[edited] : undefined;
   const detail = await getMouDetail(id);
   if (!detail) notFound();
   const { mou, history } = detail;
@@ -54,9 +69,18 @@ export default async function MouDetailPage({ params }: { params: Promise<{ id: 
               <p className="text-sm text-slate">Created {formatDate(mou.createdAt)}</p>
             </div>
           </div>
-          <StatusBadge status={status} />
+          <div className="flex items-center gap-3">
+            {canChange ? (
+              <Link href={`/admin/mous/${mou.id}/edit`} className="btn-outline">
+                <Icon name="edit" className="h-4 w-4" /> Edit
+              </Link>
+            ) : null}
+            <StatusBadge status={status} />
+          </div>
         </div>
       </div>
+
+      {banner ? <FlashMessage key={edited} text={banner.text} tone={banner.tone} /> : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Agreement terms">
@@ -70,21 +94,38 @@ export default async function MouDetailPage({ params }: { params: Promise<{ id: 
             <Row label="Payment method">{mou.paymentMethod ?? "Not set"}</Row>
             <Row label="Extra scope">{mou.customScope ?? "None"}</Row>
             <Row label="Client email">{mou.clientEmail}</Row>
+            <Row label="Copies to">{mou.ccEmails.length > 0 ? mou.ccEmails.join(", ") : "No one else"}</Row>
           </dl>
         </Card>
 
-        <Card title="Secure client link">
-          <p className="mb-5 text-sm text-slate">
-            Link expires <strong className="text-navy">{formatDate(mou.tokenExpiresAt)}</strong>. For safety the link itself is never stored, so it can only be shown when it is created.
-          </p>
-          <LinkPanel mouId={mou.id} canChange={canChange} />
-        </Card>
+        {mou.signedAt ? (
+          <Card title="Signing record">
+            <dl>
+              <Row label="Signed by">{mou.signerName}, {mou.signerTitle}</Row>
+              <Row label="Signed on">{formatDateTime(mou.signedAt)}</Row>
+              <Row label="Start date">{mou.startDate ? formatDay(mou.startDate) : "Not set"}</Row>
+              <Row label="Email">{mou.signerEmail1}{mou.signerEmail2 ? `, ${mou.signerEmail2}` : ""}</Row>
+              <Row label="Phone">{mou.signerPhone1}{mou.signerPhone2 ? `, ${mou.signerPhone2}` : ""}</Row>
+              <Row label="Network address">{mou.signerIp ?? "Not recorded"}</Row>
+              <Row label="MOU version">{mou.termsVersion}</Row>
+              <Row label="Document fingerprint"><span className="font-mono text-xs">{mou.documentHash?.slice(0, 24)}</span></Row>
+            </dl>
+          </Card>
+        ) : (
+          <Card title="Send to the client">
+            <p className="mb-5 text-sm text-slate">
+              {mou.sentAt ? <>Last sent {formatDate(mou.sentAt)}. </> : null}
+              The link works until <strong className="text-navy">{formatDate(mou.tokenExpiresAt)}</strong>. For safety the link itself is never stored, so it can only be shown when it is made.
+            </p>
+            <LinkPanel mouId={mou.id} canChange={canChange} alreadySent={mou.sentAt !== null} recipients={[mou.clientEmail, ...mou.ccEmails]} company={mou.client.companyName} />
+          </Card>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card title="Invoices">
           {mou.invoices.length === 0 ? (
-            <p className="text-sm text-slate">No invoices yet. The first invoice is created when the client signs.</p>
+            <p className="text-sm text-slate">No invoices yet.</p>
           ) : (
             <ul className="divide-y divide-navy/5 text-sm">
               {mou.invoices.map((i) => (

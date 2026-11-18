@@ -25,11 +25,11 @@ describe("parseCreateMou", () => {
     expect(r.value.customScope).toBeNull();
     expect(r.value.paymentDueDays).toBe(7);
   });
-  it("defaults the link expiry to 14 days", () => {
+  it("defaults the link expiry to 30 days", () => {
     const { linkExpiryDays: _ignored, ...rest } = valid;
     void _ignored;
     const r = parseCreateMou(rest);
-    expect(r.ok && r.value.linkExpiryDays).toBe(14);
+    expect(r.ok && r.value.linkExpiryDays).toBe(30);
   });
   it("keeps an optional scope line", () => {
     const r = parseCreateMou({ ...valid, customScope: "  Bookkeeping support " });

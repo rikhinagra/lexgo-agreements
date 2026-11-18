@@ -48,3 +48,10 @@ Vercel Hobby is for non commercial use and allows only a daily cron, so use Verc
 - Client confirmation of advance billing and the $1,800 default.
 - Payment due days (the MOU leaves it blank). Proposed default is 7 days.
 - Real provider signatory name and title, and the company legal name.
+
+## Changes agreed on 2026-11-18
+- A MOU can have one primary client email and extra copy emails (limit 5). Only one person signs.
+- An admin reviews the MOU and clicks Send to client. Nothing is sent at creation.
+- When the client signs, Baba, Saheb and Rikhi are all emailed.
+- Invoices are never emailed to the client automatically. The first invoice (at signing) and the monthly invoices (on the 1st) are created as drafts. The admins are emailed to review, and an admin clicks Send invoice.
+- Unsigned MOUs can be edited. If the MOU was already sent, saving a change stops the old link and returns it to Draft, so it must be sent again. Signed MOUs are locked.
